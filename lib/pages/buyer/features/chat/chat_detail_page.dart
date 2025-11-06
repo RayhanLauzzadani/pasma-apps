@@ -1,0 +1,695 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:pasma_apps/widgets/chat_bubble.dart';
+import 'package:pasma_apps/widgets/edit_chat_dialog.dart';
+import 'package:pasma_apps/widgets/delete_chat_dialog.dart';
+import 'package:pasma_apps/data/services/notification_service.dart';
+import 'package:pasma_apps/widgets/unread_chat.dart';
+import 'package:pasma_apps/widgets/chat_date_separator.dart';
+
+class ChatDetailPage extends StatefulWidget {
+  final String chatId;
+  final String shopId;
+  final String shopName;
+
+  const ChatDetailPage({
+    super.key,
+    required this.chatId,
+    required this.shopId,
+    required this.shopName,
+  });
+
+  @override
+  State<ChatDetailPage> createState() => _ChatDetailPageState();
+}
+
+class _ChatDetailPageState extends State<ChatDetailPage> with WidgetsBindingObserver {
+  Map<String, dynamic>? shopData;
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  bool _sending = false;
+  String _inputText = "";
+  String? sellerUserId;
+
+  bool _scrolledToUnread = false;
+
+  // guard tambahan
+  bool _blockedSelfOrInvalid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchShopData();
+    _controller.addListener(_onTextChanged);
+    WidgetsBinding.instance.addObserver(this);
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // tandai read di subkoleksi lama (kalau ada)
+      markChatNotificationAsRead(user.uid, widget.chatId);
+      // tandai read juga di top-level chatNotifications (skema baru)
+      _markTopLevelChatNotifRead(user.uid);
+      // validasi channel / self-chat
+      _validateChatChannel(user.uid);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.removeListener(_onTextChanged);
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // Auto scroll saat keyboard muncul
+  @override
+  void didChangeMetrics() {
+    final bottomInset = WidgetsBinding.instance.window.viewInsets.bottom;
+    if (bottomInset > 0.0) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
+  void _onTextChanged() {
+    setState(() {
+      _inputText = _controller.text;
+    });
+  }
+
+  String _getStatus() {
+    if (shopData == null) return '';
+    final isOnline = shopData?['isOnline'] ?? false;
+    if (isOnline) return 'Online';
+
+    final lastLogin = shopData?['lastLogin'];
+    if (lastLogin is Timestamp) {
+      final now = DateTime.now();
+      final diff = now.difference(lastLogin.toDate());
+      if (diff.inMinutes < 1) return 'Terakhir dilihat baru saja';
+      if (diff.inMinutes < 60) return 'Terakhir dilihat ${diff.inMinutes} menit yang lalu';
+      if (diff.inHours < 24) return 'Terakhir dilihat ${diff.inHours} jam yang lalu';
+      final days = diff.inDays > 7 ? 7 : diff.inDays;
+      return 'Terakhir dilihat $days hari yang lalu';
+    }
+    return 'Offline';
+  }
+
+  void _onLongPressMessage({
+    required BuildContext context,
+    required String messageId,
+    required String currentText,
+    required DateTime sentAt,
+  }) {
+    final canEdit = DateTime.now().difference(sentAt) < const Duration(minutes: 15);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (canEdit)
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Color(0xFF2056D3)),
+                  title: const Text("Edit Pesan"),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final edited = await showEditChatDialog(
+                      context: context,
+                      currentText: currentText,
+                    );
+                    if (edited != null && edited != currentText && edited.isNotEmpty) {
+                      final msgRef = FirebaseFirestore.instance
+                          .collection('chats')
+                          .doc(widget.chatId)
+                          .collection('messages')
+                          .doc(messageId);
+
+                      await msgRef.update({
+                        'text': edited,
+                        'editedAt': FieldValue.serverTimestamp(),
+                      });
+
+                      final messagesSnap = await FirebaseFirestore.instance
+                          .collection('chats')
+                          .doc(widget.chatId)
+                          .collection('messages')
+                          .orderBy('sentAt', descending: true)
+                          .limit(1)
+                          .get();
+
+                      if (messagesSnap.docs.isNotEmpty &&
+                          messagesSnap.docs.first.id == messageId) {
+                        final lastMsgData = messagesSnap.docs.first.data();
+                        await FirebaseFirestore.instance
+                            .collection('chats')
+                            .doc(widget.chatId)
+                            .update({
+                          'lastMessage': edited,
+                          'lastTimestamp': lastMsgData['sentAt'],
+                        });
+                      }
+                    }
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text("Hapus Pesan"),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final confirm = await showDeleteChatDialog(
+                    context: context,
+                    messageText: currentText,
+                  );
+                  if (confirm == true) {
+                    final messagesSnap = await FirebaseFirestore.instance
+                        .collection('chats')
+                        .doc(widget.chatId)
+                        .collection('messages')
+                        .orderBy('sentAt', descending: true)
+                        .limit(2)
+                        .get();
+
+                    final isLast = messagesSnap.docs.isNotEmpty &&
+                        messagesSnap.docs.first.id == messageId;
+
+                    await FirebaseFirestore.instance
+                        .collection('chats')
+                        .doc(widget.chatId)
+                        .collection('messages')
+                        .doc(messageId)
+                        .delete();
+
+                    if (isLast) {
+                      if (messagesSnap.docs.length > 1) {
+                        final prevMsg = messagesSnap.docs[1].data();
+                        await FirebaseFirestore.instance
+                            .collection('chats')
+                            .doc(widget.chatId)
+                            .update({
+                          'lastMessage': prevMsg['text'] ?? '',
+                          'lastTimestamp': prevMsg['sentAt'],
+                        });
+                      } else {
+                        await FirebaseFirestore.instance
+                            .collection('chats')
+                            .doc(widget.chatId)
+                            .update({
+                          'lastMessage': '',
+                          'lastTimestamp': null,
+                        });
+                      }
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void jumpToFirstUnread(int index) {
+    if (_scrollController.hasClients) {
+      const itemHeight = 72.0;
+      _scrollController.jumpTo(itemHeight * index);
+    }
+  }
+
+  Future<void> _fetchShopData() async {
+    final doc = await FirebaseFirestore.instance.collection('stores').doc(widget.shopId).get();
+    if (doc.exists) {
+      setState(() {
+        shopData = doc.data();
+        sellerUserId = shopData?['ownerId'];
+      });
+    }
+  }
+
+  /// Guard: validasi bahwa chat ini memang buyer↔seller dan bukan self-chat
+  Future<void> _validateChatChannel(String myUid) async {
+    try {
+      final chatDoc = await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .get();
+      final m = chatDoc.data();
+      if (m == null) return;
+
+      final buyerId = (m['buyerId'] ?? '').toString();
+      final shopOwnerId =
+          (m['shopOwnerId'] ?? m['ownerId'] ?? m['sellerId'] ?? '').toString();
+      final shopIdInChat = (m['shopId'] ?? m['storeId'] ?? '').toString();
+      final channel = (m['channel'] ?? m['type'] ?? '').toString().toLowerCase();
+
+      final isDm = channel == 'dm' || shopIdInChat.isEmpty;
+      final isSelf = shopOwnerId.isNotEmpty && shopOwnerId == myUid;
+      final buyerMismatch = buyerId.isNotEmpty && buyerId != myUid;
+
+      if (isDm || isSelf || buyerMismatch) {
+        if (!mounted) return;
+        setState(() => _blockedSelfOrInvalid = true);
+        await showDialog(
+          context: context,
+          builder: (_) => const AlertDialog(
+            title: Text('Chat tidak valid'),
+            content: Text('Anda tidak dapat membuka chat ini.'),
+          ),
+        );
+        if (mounted) Navigator.pop(context);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _sendMessage() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Anda belum login. Silakan login dulu!")),
+      );
+      return;
+    }
+    if (_sending) return;
+
+    // guard self-chat saat kirim (jika lolos ke layar karena data lama)
+    if (sellerUserId != null && sellerUserId == user.uid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Tidak bisa mengirim pesan ke toko milik sendiri.")),
+      );
+      return;
+    }
+
+    if (_blockedSelfOrInvalid) return;
+
+    setState(() => _sending = true);
+
+    try {
+      final now = DateTime.now();
+      final msgRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .collection('messages')
+          .doc();
+
+      await msgRef.set({
+        'senderId': user.uid,
+        'text': text,
+        'sentAt': Timestamp.fromDate(now),
+        'isRead': false,
+        'type': 'text',
+      });
+
+      final buyerDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final buyerName = (buyerDoc.data()?['name'] ?? '') as String? ?? '';
+      final buyerAvatar = (buyerDoc.data()?['avatar'] ?? '') as String? ?? '';
+
+      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
+        'lastMessage': text,
+        'lastTimestamp': Timestamp.fromDate(now),
+        'buyerName': buyerName,
+        'buyerAvatar': buyerAvatar,
+      });
+
+      // kirim notifikasi ke owner toko (receiver seller)
+      if (sellerUserId != null && sellerUserId!.isNotEmpty) {
+        await NotificationService.instance.sendOrUpdateChatNotification(
+          receiverId: sellerUserId!,
+          chatId: widget.chatId,
+          senderName: buyerName,
+          lastMessage: text,
+          senderRole: "buyer",
+        );
+      }
+
+      _controller.clear();
+
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Gagal mengirim pesan: $e")),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Tandai read di subkoleksi users/{uid}/notifications (skema lama)
+  Future<void> markChatNotificationAsRead(String userId, String chatId) async {
+    final notifDocs = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .where('chatId', isEqualTo: chatId)
+        .where('type', isEqualTo: 'chat_message')
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    for (final doc in notifDocs.docs) {
+      await doc.reference.update({'isRead': true});
+    }
+  }
+
+  /// Tandai read juga di top-level chatNotifications (skema baru, ada receiverSide)
+  Future<void> _markTopLevelChatNotifRead(String userId) async {
+    final qs = await FirebaseFirestore.instance
+        .collection('chatNotifications')
+        .where('receiverId', isEqualTo: userId)
+        .where('chatId', isEqualTo: widget.chatId)
+        .where('type', isEqualTo: 'chat_message')
+        .get();
+
+    for (final d in qs.docs) {
+      if (d.data()['isRead'] != true) {
+        await d.reference.update({'isRead': true});
+      }
+    }
+  }
+
+  String _formatTime(Timestamp sentAt) {
+    final dt = sentAt.toDate();
+    return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shopAvatar = shopData?['logoUrl'] ?? '';
+    final shopName = shopData?['name'] ?? widget.shopName;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(78),
+        child: Container(
+          color: Colors.white,
+          padding: EdgeInsets.only(
+            top: MediaQuery.of(context).padding.top,
+            left: 0,
+            right: 0,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 12, top: 8, right: 0, bottom: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.of(context).pop(),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF1C55C0),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: shopAvatar != ''
+                          ? Image.network(
+                              shopAvatar,
+                              width: 42,
+                              height: 42,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              width: 42,
+                              height: 42,
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.store, color: Color(0xFF1C55C0), size: 26),
+                            ),
+                    ),
+                    if (shopData != null)
+                      Positioned(
+                        bottom: 2,
+                        right: 2,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: (shopData?['isOnline'] == true)
+                                ? const Color(0xFF00C168)
+                                : Colors.grey[400],
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.3),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        shopName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        _getStatus(),
+                        style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: shopData?['isOnline'] == true
+                              ? const Color(0xFF00C168)
+                              : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('chats')
+                  .doc(widget.chatId)
+                  .collection('messages')
+                  .orderBy('sentAt', descending: false)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                int? unreadIndex;
+
+                if (snapshot.hasData) {
+                  final messages = snapshot.data!.docs;
+                  final user = FirebaseAuth.instance.currentUser;
+
+                  // Cari pesan pertama yang unread dari toko (bukan user sendiri)
+                  for (int i = 0; i < messages.length; i++) {
+                    final msg = messages[i].data() as Map<String, dynamic>;
+                    if (msg['isRead'] == false && msg['senderId'] != user?.uid) {
+                      unreadIndex = i;
+                      break;
+                    }
+                  }
+
+                  // Auto scroll ke unread (sekali)
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!_scrolledToUnread) {
+                      if (unreadIndex != null) {
+                        jumpToFirstUnread(unreadIndex);
+                      } else if (_scrollController.hasClients) {
+                        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+                      }
+                      _scrolledToUnread = true;
+                    }
+                  });
+
+                  // Tandai unread → read
+                  Future.microtask(() async {
+                    for (final doc in messages) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      if (data['isRead'] == false && data['senderId'] != user?.uid) {
+                        await doc.reference.update({'isRead': true});
+                      }
+                    }
+                  });
+
+                  if (messages.isEmpty) {
+                    return Center(
+                      child: Text(
+                        "Belum ada percakapan.\nMulai chat sekarang.",
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.dmSans(fontSize: 15, color: Colors.grey[600]),
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.only(top: 10, bottom: 10),
+                    itemCount: messages.length,
+                    itemBuilder: (context, i) {
+                      final msg = messages[i].data() as Map<String, dynamic>;
+                      final isMe = msg['senderId'] == user?.uid;
+                      final time = msg['sentAt'] is Timestamp ? _formatTime(msg['sentAt']) : '';
+                      final isRead = msg['isRead'] == true;
+                      final isEdited = msg.containsKey('editedAt') && msg['editedAt'] != null;
+                      final showUnreadDivider = (unreadIndex != null && i == unreadIndex);
+
+                      // Date separator
+                      bool showDateSeparator = false;
+                      DateTime? msgDate;
+                      if (msg['sentAt'] is Timestamp) {
+                        msgDate = (msg['sentAt'] as Timestamp).toDate();
+                        if (i == 0) {
+                          showDateSeparator = true;
+                        } else {
+                          final prevMsg = messages[i - 1].data() as Map<String, dynamic>;
+                          final prevDate = (prevMsg['sentAt'] as Timestamp).toDate();
+                          if (!(msgDate.year == prevDate.year &&
+                              msgDate.month == prevDate.month &&
+                              msgDate.day == prevDate.day)) {
+                            showDateSeparator = true;
+                          }
+                        }
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (showDateSeparator && msgDate != null)
+                            ChatDateSeparator(date: msgDate),
+                          if (showUnreadDivider) const UnreadChatDivider(),
+                          ChatBubble(
+                            text: msg['text'] ?? '',
+                            time: time,
+                            isMe: isMe,
+                            isRead: isMe ? isRead : false,
+                            isEdited: isEdited,
+                            onLongPress: isMe
+                                ? () => _onLongPressMessage(
+                                      context: context,
+                                      messageId: snapshot.data!.docs[i].id,
+                                      currentText: msg['text'] ?? '',
+                                      sentAt: (msg['sentAt'] as Timestamp).toDate(),
+                                    )
+                                : null,
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return const Center(child: Text("Terjadi kesalahan"));
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            bottom: true,
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      maxLines: null,
+                      textInputAction: TextInputAction.newline,
+                      style: GoogleFonts.dmSans(fontSize: 15),
+                      decoration: InputDecoration(
+                        hintText: "Ketik Pesanmu...",
+                        hintStyle: GoogleFonts.dmSans(color: Colors.grey[400], fontSize: 15),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
+                        filled: true,
+                        fillColor: const Color(0xFFF5F6FA),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(22),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      enabled: !_sending && !_blockedSelfOrInvalid,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: (_inputText.trim().isEmpty || _sending || _blockedSelfOrInvalid)
+                        ? null
+                        : _sendMessage,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: (_inputText.trim().isEmpty || _sending || _blockedSelfOrInvalid)
+                            ? Colors.grey[300]
+                            : const Color(0xFF2056D3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: _sending
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, color: Colors.white, size: 22),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -1,0 +1,706 @@
+import 'package:pasma_apps/pages/buyer/widgets/logout_confirmation_dialog.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_home_header.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_summary_card.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_abc_payment_section.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_store_submission_section.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_product_submission_section.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_bottom_navbar.dart';
+import 'package:pasma_apps/pages/admin/features/approval/store/admin_store_approval_page.dart';
+import 'package:pasma_apps/pages/admin/features/approval/product/admin_product_approval_page.dart';
+import 'package:pasma_apps/pages/admin/widgets/admin_ad_submission_section.dart';
+import 'package:pasma_apps/pages/admin/features/approval/ad/admin_ad_approval_page.dart';
+import 'package:pasma_apps/pages/admin/features/approval/ad/admin_ad_approval_detail_page.dart';
+import 'package:pasma_apps/pages/buyer/features/auth/login_page.dart';
+import 'package:pasma_apps/pages/admin/features/approval/payment/admin_payment_approval_page.dart';
+import 'package:pasma_apps/pages/admin/features/approval/store/admin_store_approval_detail_page.dart';
+import 'package:pasma_apps/pages/admin/features/notification/notification_page_admin.dart';
+import 'package:pasma_apps/pages/admin/features/approval/payment/admin_payment_approval_detail_page.dart';
+import 'package:pasma_apps/pages/admin/features/dispute/admin_dispute_list_page.dart';
+import 'package:pasma_apps/data/models/category_type.dart';
+import 'package:pasma_apps/pages/seller/data/models/ad.dart';
+import 'package:intl/intl.dart';
+
+// ADD: detach token saat logout/force-logout
+import 'package:pasma_apps/data/services/fcm_token_registrar.dart';
+
+class HomePageAdmin extends StatefulWidget {
+  const HomePageAdmin({super.key});
+
+  @override
+  State<HomePageAdmin> createState() => _HomePageAdminState();
+}
+
+class _HomePageAdminState extends State<HomePageAdmin> {
+  int _currentIndex = 0;
+  bool _isExiting = false;
+  int _storeTabIndex = 0; // Track which store tab to open
+  int _productTabIndex = 0; // Track which product tab to open
+
+  // Guard agar tidak double-logout
+  bool _isLoggingOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAdminClaim();
+  }
+
+  Future<void> _checkAdminClaim() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _forceLogoutWithMsg('Anda belum login.');
+      return;
+    }
+    try {
+      final token = await user.getIdTokenResult(true);
+      final claims = token.claims;
+      if (claims == null || claims['admin'] != true) {
+        _forceLogoutWithMsg('Akses admin diperlukan. Silakan login dengan akun admin.');
+      }
+    } catch (e) {
+      _forceLogoutWithMsg('Terjadi error: $e');
+    }
+  }
+
+  void _forceLogoutWithMsg(String message) async {
+    if (_isLoggingOut) return;
+    _isLoggingOut = true;
+
+    // DETACH token lebih dulu agar tidak “nempel” di akun lama
+    try {
+      await FcmTokenRegistrar.unregister();
+    } catch (_) {
+      // swallow error agar UI tetap jalan
+    }
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // swallow error agar UI tetap jalan
+    }
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Akses Ditolak'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+
+    _isLoggingOut = false;
+  }
+
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+
+    final result = await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => const LogoutConfirmationDialog(),
+    );
+
+    if (result == true) {
+      _isLoggingOut = true;
+
+      // DETACH token sebelum signOut
+      try {
+        await FcmTokenRegistrar.unregister();
+      } catch (_) {
+        // swallow error
+      }
+
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {
+        // swallow error
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
+      );
+
+      _isLoggingOut = false;
+    }
+  }
+
+  Future<List<AdminAbcPaymentData>> _mapPaymentAppsToUi(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    return Future.wait(docs.map((d) async {
+      final m = d.data();
+      final typeStr = (m['type'] as String? ?? '').toLowerCase();
+      final isWithdraw = typeStr == 'withdrawal';
+      final submittedAt = (m['submittedAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+      if (isWithdraw) {
+        // Tampilkan nama toko
+        String name = 'Penjual';
+        final storeId = m['storeId'] as String?;
+        if (storeId != null && storeId.isNotEmpty) {
+          final st =
+              await FirebaseFirestore.instance.collection('stores').doc(storeId).get();
+          name = (st.data()?['name'] as String?) ?? name;
+        }
+        final amount = (m['amount'] as num?)?.toInt() ?? 0; // nominal diajukan
+        return AdminAbcPaymentData(
+          applicationId: d.id,
+          name: name,
+          isSeller: true,
+          type: AbcPaymentType.withdraw,
+          amount: amount,
+          createdAt: submittedAt,
+        );
+      } else {
+        // Top-up → tampilkan nama user (fallback email)
+        String name = (m['buyerEmail'] as String?) ?? 'Pembeli';
+        final buyerId = m['buyerId'] as String?;
+        if (buyerId != null && buyerId.isNotEmpty) {
+          final u =
+              await FirebaseFirestore.instance.collection('users').doc(buyerId).get();
+          name = (u.data()?['displayName'] as String?) ??
+              (u.data()?['name'] as String?) ??
+              name;
+        }
+        final amount = (m['amount'] as num?)?.toInt() ?? 0; // jumlah isi saldo
+        return AdminAbcPaymentData(
+          applicationId: d.id,
+          name: name,
+          isSeller: false,
+          type: AbcPaymentType.topup,
+          amount: amount,
+          createdAt: submittedAt,
+        );
+      }
+    }));
+  }
+
+  String _formatDate(DateTime dt) {
+    return "${dt.day.toString().padLeft(2, '0')}/"
+        "${dt.month.toString().padLeft(2, '0')}/"
+        "${dt.year}, ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget mainBody;
+
+    if (_currentIndex == 1) {
+      mainBody = const AdminPaymentApprovalPage();
+    } else if (_currentIndex == 2) {
+      mainBody = AdminStoreApprovalPage(initialTabIndex: _storeTabIndex);
+    } else if (_currentIndex == 3) {
+      mainBody = AdminProductApprovalPage(initialTabIndex: _productTabIndex);
+    } else if (_currentIndex == 4) {
+      mainBody = const AdminAdApprovalPage();
+    } else {
+      mainBody = Column(
+        children: [
+          // HEADER
+          Container(
+            padding: const EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: 16,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color.fromRGBO(0, 0, 0, 0.07),
+                  blurRadius: 16,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: AdminHomeHeader(
+              onNotif: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationPageAdmin(),
+                  ),
+                );
+              },
+              onLogoutTap: _logout,
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- Admin Summary Card ---
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('shopApplications')
+                          .snapshots(),
+                      builder: (context, shopSnapshot) {
+                        int tokoBaru = 0;
+                        int tokoTerdaftar = 0;
+                        if (shopSnapshot.hasData) {
+                          final docs = shopSnapshot.data!.docs;
+                          tokoBaru = docs
+                              .where((doc) =>
+                                  (doc['status'] ?? '').toString().toLowerCase() == 'pending')
+                              .length;
+                          tokoTerdaftar = docs
+                              .where((doc) =>
+                                  (doc['status'] ?? '').toString().toLowerCase() == 'approved')
+                              .length;
+                        }
+                        return StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('productsApplication')
+                              .snapshots(),
+                          builder: (context, prodSnapshot) {
+                            int produkBaru = 0;
+                            if (prodSnapshot.hasData) {
+                              final prods = prodSnapshot.data!.docs;
+                              produkBaru = prods.where((doc) {
+                                final status =
+                                    (doc['status'] ?? '').toString().toLowerCase();
+                                return status == 'menunggu' || status == 'pending';
+                              }).length;
+                            }
+                            
+                            // Query produk yang sudah disetujui dari collection 'products'
+                            return StreamBuilder<QuerySnapshot>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('products')
+                                  .snapshots(),
+                              builder: (context, approvedProdSnapshot) {
+                                int produkDisetujui = 0;
+                                if (approvedProdSnapshot.hasData) {
+                                  produkDisetujui = approvedProdSnapshot.data!.docs.length;
+                                }
+                                
+                                // --- QUERY IKLAN BARU & DISETUJUI (Real) ---
+                                return StreamBuilder<QuerySnapshot>(
+                                  stream: FirebaseFirestore.instance
+                                      .collection('adsApplication')
+                                      .snapshots(),
+                                  builder: (context, adSnap) {
+                                    int iklanBaru = 0;
+                                    int iklanDisetujui = 0;
+                                    if (adSnap.hasData) {
+                                      final ads = adSnap.data!.docs;
+                                      iklanBaru = ads
+                                          .where((doc) =>
+                                              (doc['status'] ?? '').toString().toLowerCase() ==
+                                              'menunggu')
+                                          .length;
+                                      iklanDisetujui = ads
+                                          .where((doc) =>
+                                              (doc['status'] ?? '').toString().toLowerCase() ==
+                                              'disetujui')
+                                          .length;
+                                    }
+                                    
+                                    // --- QUERY KOMPLAIN BARU ---
+                                    return StreamBuilder<QuerySnapshot>(
+                                      stream: FirebaseFirestore.instance
+                                          .collection('orderDisputes')
+                                          .where('status', isEqualTo: 'open')
+                                          .snapshots(),
+                                      builder: (context, disputeSnap) {
+                                        int komplainBaru = 0;
+                                        if (disputeSnap.hasData) {
+                                          komplainBaru = disputeSnap.data!.docs.length;
+                                        }
+                                        
+                                        return AdminSummaryCard(
+                                          tokoBaru: tokoBaru,
+                                          tokoTerdaftar: tokoTerdaftar,
+                                          produkBaru: produkBaru,
+                                          produkDisetujui: produkDisetujui,
+                                          iklanBaru: iklanBaru,
+                                          iklanAktif: iklanDisetujui,
+                                          komplainBaru: komplainBaru,
+                                          onTokoTerdaftarTap: () {
+                                            // Navigate ke tab Toko dengan tab Terverifikasi
+                                            setState(() {
+                                              _storeTabIndex = 1; // Tab Terverifikasi
+                                              _currentIndex = 2; // Tab Toko
+                                            });
+                                          },
+                                          onProdukDisetujuiTap: () {
+                                            // Navigate ke tab Produk dengan tab Terverifikasi
+                                            setState(() {
+                                              _productTabIndex = 1; // Tab Terverifikasi
+                                              _currentIndex = 3; // Tab Produk
+                                            });
+                                          },
+                                          onKomplainTap: () {
+                                            // Navigate ke halaman komplain
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) => const AdminDisputeListPage(),
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      },
+                                    );
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('paymentApplications')
+                          .where('status', isEqualTo: 'pending')
+                          .orderBy('submittedAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          // tampilkan kartu dengan empty state
+                          return AdminAbcPaymentSection(
+                            items: const [],
+                            onSeeAll: () => setState(() => _currentIndex = 1),
+                          );
+                        }
+                        if (snap.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+
+                        final docs = snap.data?.docs ?? [];
+                        if (docs.isEmpty) {
+                          // kosong -> seperti Ajuan Toko
+                          return AdminAbcPaymentSection(
+                            items: const [],
+                            onSeeAll: () => setState(() => _currentIndex = 1),
+                          );
+                        }
+
+                        // Perlu fetch nama toko / nama user -> bungkus dengan FutureBuilder
+                        return FutureBuilder<List<AdminAbcPaymentData>>(
+                          future: _mapPaymentAppsToUi(docs),
+                          builder: (context, mapped) {
+                            if (mapped.connectionState == ConnectionState.waiting) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 30),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                            final items = mapped.data ?? const <AdminAbcPaymentData>[];
+                            return AdminAbcPaymentSection(
+                              items: items,
+                              onSeeAll: () => setState(() => _currentIndex = 1),
+                              onDetail: (item) {
+                                if (item.applicationId == null) return;
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => AdminPaymentApprovalDetailPage(
+                                      applicationId: item.applicationId!,
+                                      type: item.type == AbcPaymentType.withdraw
+                                          ? PaymentRequestType.withdrawal
+                                          : PaymentRequestType.topUp,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ====== STREAMBUILDER Ajuan Toko Terbaru ======
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('shopApplications')
+                          .where('status', isEqualTo: 'pending')
+                          .orderBy('submittedAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Terjadi kesalahan: ${snapshot.error}'),
+                          );
+                        }
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final submissions = (snapshot.data?.docs ?? []).map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          return AdminStoreSubmissionData(
+                            imagePath: data['logoUrl'] ?? '',
+                            storeName: data['shopName'] ?? '-',
+                            storeAddress: data['address'] ?? '-',
+                            submitter: data['owner']?['nama'] ?? '-',
+                            date: (data['submittedAt'] != null && data['submittedAt'] is Timestamp)
+                                ? _formatDate((data['submittedAt'] as Timestamp).toDate())
+                                : '-',
+                            docId: doc.id,
+                          );
+                        }).toList();
+                        return AdminStoreSubmissionSection(
+                          submissions: submissions,
+                          onSeeAll: () {
+                            setState(() {
+                              _currentIndex = 2;
+                            });
+                          },
+                          onDetail: (submission) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AdminStoreApprovalDetailPage(
+                                  docId: submission.docId,
+                                  approvalData: null,
+                                ),
+                              ),
+                            );
+                          },
+                          isNetworkImage: true,
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ====== PRODUCT SECTION: produkApplication terbaru (pending) ======
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('productsApplication')
+                          .where('status', whereIn: ['Menunggu', 'pending'])
+                          .orderBy('createdAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, prodSnap) {
+                        if (prodSnap.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Terjadi kesalahan: ${prodSnap.error}'),
+                          );
+                        }
+                        if (prodSnap.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final submissions = (prodSnap.data?.docs ?? []).map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          return AdminProductSubmissionData(
+                            id: doc.id,
+                            imagePath: data['imageUrl'] ?? '',
+                            productName: data['name'] ?? '-',
+                            categoryType: mapCategoryType(data['category']),
+                            storeName: data['storeName'] ?? '-',
+                            date: (data['createdAt'] != null && data['createdAt'] is Timestamp)
+                                ? _formatDate((data['createdAt'] as Timestamp).toDate())
+                                : '-',
+                          );
+                        }).toList();
+                        return AdminProductSubmissionSection(
+                          submissions: submissions,
+                          onSeeAll: () {
+                            setState(() {
+                              _currentIndex = 3;
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ====== IKLAN SECTION: REALTIME (Menunggu) ======
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('adsApplication')
+                          .where('status', isEqualTo: 'Menunggu')
+                          .orderBy('createdAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Terjadi kesalahan: ${snapshot.error}'),
+                          );
+                        }
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final docs = snapshot.data?.docs ?? [];
+                        final adSubmissions = docs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          final judul = data['judul'] ?? '-';
+                          final durasiMulai = (data['durasiMulai'] is Timestamp)
+                              ? (data['durasiMulai'] as Timestamp).toDate()
+                              : DateTime.now();
+                          final durasiSelesai = (data['durasiSelesai'] is Timestamp)
+                              ? (data['durasiSelesai'] as Timestamp).toDate()
+                              : DateTime.now();
+                          final period = _formatPeriod(durasiMulai, durasiSelesai);
+                          final createdAt = (data['createdAt'] is Timestamp)
+                              ? (data['createdAt'] as Timestamp).toDate()
+                              : DateTime.now();
+                          final tglAjukan = DateFormat('dd/MM/yyyy, HH:mm').format(createdAt);
+
+                          // Map ke AdApplication
+                          final ad = AdApplication.fromFirestore(doc);
+
+                          return AdminAdSubmissionData(
+                            title: 'Iklan : $judul',
+                            detailPeriod: period,
+                            date: tglAjukan,
+                            docId: doc.id,
+                            ad: ad, // penting
+                          );
+                        }).toList();
+
+                        return AdminAdSubmissionSection(
+                          submissions: adSubmissions,
+                          onSeeAll: () {
+                            setState(() {
+                              _currentIndex = 4;
+                            });
+                          },
+                          onDetail: (submission) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AdminAdApprovalDetailPage(ad: submission.ad),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        if (_isExiting) return;
+        _isExiting = true;
+        final ok = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Keluar Aplikasi?'),
+                content: const Text('Anda yakin ingin menutup aplikasi?'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Keluar')),
+                ],
+              ),
+            ) ??
+            false;
+        _isExiting = false;
+        if (ok && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: mainBody,
+        bottomNavigationBar: AdminBottomNavbar(
+          currentIndex: _currentIndex,
+          onTap: (index) {
+            setState(() {
+              _currentIndex = index;
+              // Reset store tab index jika bukan tab Toko
+              if (index != 2) {
+                _storeTabIndex = 0;
+              }
+              // Reset product tab index jika bukan tab Produk
+              if (index != 3) {
+                _productTabIndex = 0;
+              }
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  // --- Helper period formatter ---
+  String _formatPeriod(DateTime mulai, DateTime selesai) {
+    final durasi = selesai.difference(mulai).inDays + 1;
+    final locale = 'id_ID';
+    final tglMulai = DateFormat('d MMMM', locale).format(mulai);
+    final tglSelesai = DateFormat('d MMMM yyyy', locale).format(selesai);
+    return "$durasi Hari • $tglMulai – $tglSelesai";
+  }
+}
