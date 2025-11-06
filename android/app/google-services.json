@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "32225794830",
+    "project_id": "pasma-apps-8d37e",
+    "storage_bucket": "pasma-apps-8d37e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:32225794830:android:75f3b1c48ebc21811bd55f",
+        "android_client_info": {
+          "package_name": "com.example.pasma_apps"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "32225794830-7mv3s70nj6kngbj1s0dd52q60rhc8q0h.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyChSjUigIx_7o-dVLaNGWkEacsKtItFIsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "32225794830-7mv3s70nj6kngbj1s0dd52q60rhc8q0h.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "32225794830-87i6s44n9id22idu2me7342bt9t6eqil.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.pasmaApps"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
