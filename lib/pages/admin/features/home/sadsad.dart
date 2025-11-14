@@ -301,3 +301,104 @@ class _HomePageAdminState extends State<HomePageAdmin> {
                                   final ads = adSnap.data!.docs;
                                   iklanBaru = ads
                                       .where((doc) =>
+                                          (doc['status'] ?? '').toString().toLowerCase() ==
+                                          'menunggu')
+                                      .length;
+                                  iklanDisetujui = ads
+                                      .where((doc) =>
+                                          (doc['status'] ?? '').toString().toLowerCase() ==
+                                          'disetujui')
+                                      .length;
+                                }
+                                return AdminSummaryCard(
+                                  tokoBaru: tokoBaru,
+                                  tokoTerdaftar: tokoTerdaftar,
+                                  produkBaru: produkBaru,
+                                  produkDisetujui: produkDisetujui,
+                                  iklanBaru: iklanBaru,
+                                  iklanAktif: iklanDisetujui,
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('paymentApplications')
+                          .where('status', isEqualTo: 'pending')
+                          .orderBy('submittedAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          // tampilkan kartu dengan empty state
+                          return AdminAbcPaymentSection(
+                            items: const [],
+                            onSeeAll: () => setState(() => _currentIndex = 1),
+                          );
+                        }
+                        if (snap.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+
+                        final docs = snap.data?.docs ?? [];
+                        if (docs.isEmpty) {
+                          // kosong -> seperti Ajuan Toko
+                          return AdminAbcPaymentSection(
+                            items: const [],
+                            onSeeAll: () => setState(() => _currentIndex = 1),
+                          );
+                        }
+
+                        // Perlu fetch nama toko / nama user -> bungkus dengan FutureBuilder
+                        return FutureBuilder<List<AdminAbcPaymentData>>(
+                          future: _mapPaymentAppsToUi(docs),
+                          builder: (context, mapped) {
+                            if (mapped.connectionState == ConnectionState.waiting) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 30),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                            final items = mapped.data ?? const <AdminAbcPaymentData>[];
+                            return AdminAbcPaymentSection(
+                              items: items,
+                              onSeeAll: () => setState(() => _currentIndex = 1),
+                              onDetail: (item) {
+                                if (item.applicationId == null) return;
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => AdminPaymentApprovalDetailPage(
+                                      applicationId: item.applicationId!,
+                                      type: item.type == AbcPaymentType.withdraw
+                                          ? PaymentRequestType.withdrawal
+                                          : PaymentRequestType.topUp,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
