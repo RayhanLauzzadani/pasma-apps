@@ -200,3 +200,104 @@ class _HomePageAdminState extends State<HomePageAdmin> {
   @override
   Widget build(BuildContext context) {
     Widget mainBody;
+
+    if (_currentIndex == 1) {
+      mainBody = const AdminPaymentApprovalPage();
+    } else if (_currentIndex == 2) {
+      mainBody = const AdminStoreApprovalPage();
+    } else if (_currentIndex == 3) {
+      mainBody = const AdminProductApprovalPage();
+    } else if (_currentIndex == 4) {
+      mainBody = const AdminAdApprovalPage();
+    } else {
+      mainBody = Column(
+        children: [
+          // HEADER
+          Container(
+            padding: const EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: 16,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color.fromRGBO(0, 0, 0, 0.07),
+                  blurRadius: 16,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: AdminHomeHeader(
+              onNotif: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationPageAdmin(),
+                  ),
+                );
+              },
+              onLogoutTap: _logout,
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- Admin Summary Card ---
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('shopApplications')
+                          .snapshots(),
+                      builder: (context, shopSnapshot) {
+                        int tokoBaru = 0;
+                        int tokoTerdaftar = 0;
+                        if (shopSnapshot.hasData) {
+                          final docs = shopSnapshot.data!.docs;
+                          tokoBaru = docs
+                              .where((doc) =>
+                                  (doc['status'] ?? '').toString().toLowerCase() == 'pending')
+                              .length;
+                          tokoTerdaftar = docs
+                              .where((doc) =>
+                                  (doc['status'] ?? '').toString().toLowerCase() == 'approved')
+                              .length;
+                        }
+                        return StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('productsApplication')
+                              .snapshots(),
+                          builder: (context, prodSnapshot) {
+                            int produkBaru = 0;
+                            int produkDisetujui = 0;
+                            if (prodSnapshot.hasData) {
+                              final prods = prodSnapshot.data!.docs;
+                              produkBaru = prods.where((doc) {
+                                final status =
+                                    (doc['status'] ?? '').toString().toLowerCase();
+                                return status == 'menunggu' || status == 'pending';
+                              }).length;
+                              produkDisetujui = prods.where((doc) {
+                                final status =
+                                    (doc['status'] ?? '').toString().toLowerCase();
+                                return status == 'sukses' || status == 'approved';
+                              }).length;
+                            }
+                            // --- QUERY IKLAN BARU & DISETUJUI (Real) ---
+                            return StreamBuilder<QuerySnapshot>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('adsApplication')
+                                  .snapshots(),
+                              builder: (context, adSnap) {
+                                int iklanBaru = 0;
+                                int iklanDisetujui = 0;
+                                if (adSnap.hasData) {
+                                  final ads = adSnap.data!.docs;
+                                  iklanBaru = ads
+                                      .where((doc) =>
