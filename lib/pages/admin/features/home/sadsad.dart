@@ -599,3 +599,51 @@ class _HomePageAdminState extends State<HomePageAdmin> {
         ],
       );
     }
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        if (_isExiting) return;
+        _isExiting = true;
+        final ok = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Keluar Aplikasi?'),
+                content: const Text('Anda yakin ingin menutup aplikasi?'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Keluar')),
+                ],
+              ),
+            ) ??
+            false;
+        _isExiting = false;
+        if (ok && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: mainBody,
+        bottomNavigationBar: AdminBottomNavbar(
+          currentIndex: _currentIndex,
+          onTap: (index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  // --- Helper period formatter ---
+  String _formatPeriod(DateTime mulai, DateTime selesai) {
+    final durasi = selesai.difference(mulai).inDays + 1;
+    final locale = 'id_ID';
+    final tglMulai = DateFormat('d MMMM', locale).format(mulai);
+    final tglSelesai = DateFormat('d MMMM yyyy', locale).format(selesai);
+    return "$durasi Hari • $tglMulai – $tglSelesai";
+  }
+}
