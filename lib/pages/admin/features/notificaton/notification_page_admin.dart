@@ -397,3 +397,136 @@ class NotificationPageAdmin extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final notifDoc = docs[index];
                       final data = notifDoc.data() as Map<String, dynamic>;
+
+                      final styles = _notifStyle(
+                        type: data['type'] as String?,
+                        title: data['title'] as String?,
+                      );
+
+                      final ts = data['timestamp'];
+                      final dateText = (ts is Timestamp)
+                          ? DateFormat('dd MMM, yyyy  |  HH:mm').format(ts.toDate())
+                          : '-';
+
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () => _handleTap(
+                          context: context,
+                          notifDoc: notifDoc,
+                          data: data,
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color.fromRGBO(0, 0, 0, 0.05),
+                                blurRadius: 7,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Icon bulat
+                              Container(
+                                width: 62,
+                                height: 62,
+                                decoration: BoxDecoration(
+                                  color: styles['bgColor'] as Color,
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: (styles['svg'] as String?) != null
+                                    ? SvgPicture.asset(
+                                        styles['svg'] as String,
+                                        width: 30,
+                                        height: 30,
+                                        color: styles['iconColor'] as Color,
+                                      )
+                                    : Icon(
+                                        (styles['iconData'] as IconData?) ?? Icons.notifications,
+                                        color: styles['iconColor'] as Color,
+                                        size: 30,
+                                      ),
+                              ),
+                              const SizedBox(width: 16),
+
+                              // Content
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Title + badge New
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            (data['title'] as String?) ?? '-',
+                                            style: GoogleFonts.dmSans(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 18,
+                                              color: const Color(0xFF373E3C),
+                                            ),
+                                          ),
+                                        ),
+                                        if (data['isRead'] == false || data['isRead'] == null)
+                                          Container(
+                                            margin: const EdgeInsets.only(left: 9),
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF28A745),
+                                              borderRadius: BorderRadius.circular(14),
+                                            ),
+                                            child: const Text(
+                                              'New',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 5),
+
+                                    // Date
+                                    Text(
+                                      dateText,
+                                      style: GoogleFonts.dmSans(
+                                        color: const Color(0xFF747474),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+
+                                    // Body
+                                    Text(
+                                      (data['body'] as String?) ?? '-',
+                                      style: GoogleFonts.dmSans(
+                                        fontSize: 15,
+                                        color: const Color(0xFF222222),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
