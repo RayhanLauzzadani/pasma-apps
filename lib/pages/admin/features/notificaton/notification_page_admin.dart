@@ -297,3 +297,103 @@ class NotificationPageAdmin extends StatelessWidget {
       body: SafeArea(
         bottom: false,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 18),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color.fromRGBO(0, 0, 0, 0.07),
+                    blurRadius: 16,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 20, right: 0, top: 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: 37,
+                      height: 37,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1C55C0),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: Colors.white,
+                        size: 19,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 15),
+                  Text(
+                    'Notifikasi Admin',
+                    style: GoogleFonts.dmSans(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      color: const Color(0xFF373E3C),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // ===== List Notifikasi =====
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('admin_notifications')
+                    .orderBy('timestamp', descending: true)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Text(
+                        "Belum ada notifikasi.",
+                        style: GoogleFonts.dmSans(
+                          fontStyle: FontStyle.italic,
+                          fontSize: 15,
+                          color: const Color(0xFF9A9A9A),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final docs = snapshot.data!.docs.where((d) {
+                    final m = d.data() as Map<String, dynamic>;
+                    return _visibleForAdmin(m);
+                  }).toList();
+
+                  if (docs.isEmpty) {
+                    return Center(
+                      child: Text(
+                        "Belum ada notifikasi.",
+                        style: GoogleFonts.dmSans(
+                          fontStyle: FontStyle.italic,
+                          fontSize: 15,
+                          color: const Color(0xFF9A9A9A),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
+                    separatorBuilder: (_, __) => const SizedBox(height: 23),
+                    itemCount: docs.length,
+                    itemBuilder: (context, index) {
+                      final notifDoc = docs[index];
+                      final data = notifDoc.data() as Map<String, dynamic>;
