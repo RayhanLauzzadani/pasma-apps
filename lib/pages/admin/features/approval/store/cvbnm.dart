@@ -156,4 +156,39 @@ class _AdminStoreApprovalPageState extends State<AdminStoreApprovalPage> {
   }
 }
 
-
+Widget _emptyStoreSubmissions() {
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.only(top: 64),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            LucideIcons.store,     // icon lucide
+            size: 54,
+            color: const Color(0xFFE2E7EF),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            "Belum ada pengajuan toko",
+            style: GoogleFonts.dmSans(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: const Color(0xFF373E3C),
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "Semua pengajuan toko akan tampil di sini\njika ada toko baru dari penjual.",
+            style: GoogleFonts.dmSans(
+              fontSize: 14,
+              color: const Color(0xFF9A9A9A),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    ),
+  );
+}
