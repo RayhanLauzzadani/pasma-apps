@@ -120,3 +120,40 @@ class AdminStoreApprovalCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  data.date,
+                  style: GoogleFonts.dmSans(
+                    fontWeight: FontWeight.normal,
+                    fontSize: 12,
+                    color: const Color(0xFF9A9A9A),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: onDetail,
+                  child: Row(
+                    children: [
+                      Text(
+                        "Detail Ajuan",
+                        style: GoogleFonts.dmSans(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: const Color(0xFF1C55C0),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      const Icon(Icons.chevron_right, size: 18, color: Color(0xFF1C55C0)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
