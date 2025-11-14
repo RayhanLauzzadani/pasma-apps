@@ -197,3 +197,103 @@ class NotificationPageAdmin extends StatelessWidget {
       PaymentRequestType requestType;
       if (type.startsWith('wallet_topup') || title.toLowerCase().contains('isi saldo')) {
         requestType = PaymentRequestType.topUp;
+      } else if (type.startsWith('wallet_withdraw') ||
+          type.startsWith('seller_withdraw') ||
+          title.toLowerCase().contains('tarik saldo') ||
+          title.toLowerCase().contains('pencairan')) {
+        requestType = PaymentRequestType.withdrawal;
+      } else {
+        requestType = PaymentRequestType.topUp;
+      }
+
+      // ignore: use_build_context_synchronously
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AdminPaymentApprovalDetailPage(
+            applicationId: paymentAppId,
+            type: requestType,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 2) Toko
+    if (shopAppId != null && shopAppId.isNotEmpty) {
+      // ignore: use_build_context_synchronously
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AdminStoreApprovalDetailPage(
+            docId: shopAppId,
+            approvalData: null,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 3) Iklan
+    if (_looksLikeAd(data)) {
+      final adId = _extractAdId(data);
+      if (adId != null) {
+        await _openAdById(context, adId);
+      } else {
+        // fallback: buka latest pending ad agar tetap responsif
+        await _openLatestPendingAdFallback(context);
+      }
+      return;
+    }
+
+    // 4) Default: tidak ada action yang cocok
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Tidak ada aksi untuk notifikasi ini.')),
+    );
+  }
+
+  // ====== FILTER UTAMA ADMIN ======
+  // Buang notifikasi hasil keputusan (approved/rejected) – hanya tampilkan pengajuan.
+  bool _visibleForAdmin(Map<String, dynamic> m) {
+    final t = (m['type'] ?? '').toString().toLowerCase().trim();
+    final title = (m['title'] ?? '').toString().toLowerCase();
+
+    const blockedTypes = {
+      // withdraw/topup
+      'withdrawal_approved',
+      'withdrawal_rejected',
+      'seller_withdraw_approved',
+      'seller_withdraw_rejected',
+      'wallet_withdraw_approved',
+      'wallet_withdraw_rejected',
+      'wallet_withdrawal_approved',
+      'wallet_withdrawal_rejected',
+      'wallet_topup_approved',
+      'wallet_topup_rejected',
+      // ads
+      'ad_approved',
+      'ad_rejected',
+      'ads_approved',
+      'ads_rejected',
+    };
+
+    final looksLikeDecision =
+        (title.contains('pencairan') &&
+            (title.contains('disetujui') || title.contains('ditolak') || title.contains('diterima'))) ||
+        (title.contains('isi saldo') &&
+            (title.contains('disetujui') || title.contains('ditolak') || title.contains('diterima'))) ||
+        (title.contains('iklan') &&
+            (title.contains('disetujui') || title.contains('ditolak') || title.contains('diterima')));
+
+    if (blockedTypes.contains(t) || looksLikeDecision) return false;
+
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
