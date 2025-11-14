@@ -97,3 +97,103 @@ class NotificationPageAdmin extends StatelessWidget {
       'docId',
       'applicationId',
     ];
+    for (final k in keys) {
+      final v = data[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    return null;
+  }
+
+  Future<void> _openAdById(BuildContext context, String adId) async {
+    // loader ringan
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('adsApplication')
+          .doc(adId)
+          .get();
+
+      Navigator.of(context, rootNavigator: true).pop(); // close loader
+
+      if (!snap.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ajuan iklan tidak ditemukan.')),
+        );
+        return;
+      }
+      final ad = AdApplication.fromFirestore(snap);
+      // ignore: use_build_context_synchronously
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AdminAdApprovalDetailPage(ad: ad)),
+      );
+    } catch (e) {
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal membuka ajuan iklan: $e')),
+      );
+    }
+  }
+
+  Future<void> _openLatestPendingAdFallback(BuildContext context) async {
+    // loader ringan
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final qs = await FirebaseFirestore.instance
+          .collection('adsApplication')
+          .where('status', whereIn: ['Menunggu', 'menunggu', 'pending'])
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      Navigator.of(context, rootNavigator: true).pop(); // close loader
+
+      if (qs.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tidak ada ajuan iklan berstatus menunggu.')),
+        );
+        return;
+      }
+
+      final ad = AdApplication.fromFirestore(qs.docs.first);
+      // ignore: use_build_context_synchronously
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AdminAdApprovalDetailPage(ad: ad)),
+      );
+    } catch (e) {
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal memuat ajuan iklan: $e')),
+      );
+    }
+  }
+
+  Future<void> _handleTap({
+    required BuildContext context,
+    required DocumentSnapshot notifDoc,
+    required Map<String, dynamic> data,
+  }) async {
+    // Tandai read
+    if (data['isRead'] != true) {
+      await notifDoc.reference.update({'isRead': true});
+    }
+
+    final String type = (data['type'] as String?)?.toLowerCase() ?? '';
+    final String title = (data['title'] as String?) ?? '';
+    final String? shopAppId = data['shopApplicationId'] as String?;
+    final String? paymentAppId = data['paymentAppId'] as String?;
+
+    // 1) Payment
+    if (paymentAppId != null && paymentAppId.isNotEmpty) {
+      PaymentRequestType requestType;
+      if (type.startsWith('wallet_topup') || title.toLowerCase().contains('isi saldo')) {
+        requestType = PaymentRequestType.topUp;
