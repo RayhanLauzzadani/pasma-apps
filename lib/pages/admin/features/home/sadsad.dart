@@ -101,3 +101,102 @@ class _HomePageAdminState extends State<HomePageAdmin> {
         ],
       ),
     );
+
+    _isLoggingOut = false;
+  }
+
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+
+    final result = await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => const LogoutConfirmationDialog(),
+    );
+
+    if (result == true) {
+      _isLoggingOut = true;
+
+      // DETACH token sebelum signOut
+      try {
+        await FcmTokenRegistrar.unregister();
+      } catch (_) {
+        // swallow error
+      }
+
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {
+        // swallow error
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
+      );
+
+      _isLoggingOut = false;
+    }
+  }
+
+  Future<List<AdminAbcPaymentData>> _mapPaymentAppsToUi(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    return Future.wait(docs.map((d) async {
+      final m = d.data();
+      final typeStr = (m['type'] as String? ?? '').toLowerCase();
+      final isWithdraw = typeStr == 'withdrawal';
+      final submittedAt = (m['submittedAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+      if (isWithdraw) {
+        // Tampilkan nama toko
+        String name = 'Penjual';
+        final storeId = m['storeId'] as String?;
+        if (storeId != null && storeId.isNotEmpty) {
+          final st =
+              await FirebaseFirestore.instance.collection('stores').doc(storeId).get();
+          name = (st.data()?['name'] as String?) ?? name;
+        }
+        final amount = (m['amount'] as num?)?.toInt() ?? 0; // nominal diajukan
+        return AdminAbcPaymentData(
+          applicationId: d.id,
+          name: name,
+          isSeller: true,
+          type: AbcPaymentType.withdraw,
+          amount: amount,
+          createdAt: submittedAt,
+        );
+      } else {
+        // Top-up → tampilkan nama user (fallback email)
+        String name = (m['buyerEmail'] as String?) ?? 'Pembeli';
+        final buyerId = m['buyerId'] as String?;
+        if (buyerId != null && buyerId.isNotEmpty) {
+          final u =
+              await FirebaseFirestore.instance.collection('users').doc(buyerId).get();
+          name = (u.data()?['displayName'] as String?) ??
+              (u.data()?['name'] as String?) ??
+              name;
+        }
+        final amount = (m['amount'] as num?)?.toInt() ?? 0; // jumlah isi saldo
+        return AdminAbcPaymentData(
+          applicationId: d.id,
+          name: name,
+          isSeller: false,
+          type: AbcPaymentType.topup,
+          amount: amount,
+          createdAt: submittedAt,
+        );
+      }
+    }));
+  }
+
+  String _formatDate(DateTime dt) {
+    return "${dt.day.toString().padLeft(2, '0')}/"
+        "${dt.month.toString().padLeft(2, '0')}/"
+        "${dt.year}, ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget mainBody;
