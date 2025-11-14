@@ -402,3 +402,102 @@ class _HomePageAdminState extends State<HomePageAdmin> {
 
                   const SizedBox(height: 20),
 
+                  // ====== STREAMBUILDER Ajuan Toko Terbaru ======
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('shopApplications')
+                          .where('status', isEqualTo: 'pending')
+                          .orderBy('submittedAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Terjadi kesalahan: ${snapshot.error}'),
+                          );
+                        }
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final submissions = (snapshot.data?.docs ?? []).map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          return AdminStoreSubmissionData(
+                            imagePath: data['logoUrl'] ?? '',
+                            storeName: data['shopName'] ?? '-',
+                            storeAddress: data['address'] ?? '-',
+                            submitter: data['owner']?['nama'] ?? '-',
+                            date: (data['submittedAt'] != null && data['submittedAt'] is Timestamp)
+                                ? _formatDate((data['submittedAt'] as Timestamp).toDate())
+                                : '-',
+                            docId: doc.id,
+                          );
+                        }).toList();
+                        return AdminStoreSubmissionSection(
+                          submissions: submissions,
+                          onSeeAll: () {
+                            setState(() {
+                              _currentIndex = 2;
+                            });
+                          },
+                          onDetail: (submission) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AdminStoreApprovalDetailPage(
+                                  docId: submission.docId,
+                                  approvalData: null,
+                                ),
+                              ),
+                            );
+                          },
+                          isNetworkImage: true,
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ====== PRODUCT SECTION: produkApplication terbaru (pending) ======
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('productsApplication')
+                          .where('status', whereIn: ['Menunggu', 'pending'])
+                          .orderBy('createdAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, prodSnap) {
+                        if (prodSnap.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Terjadi kesalahan: ${prodSnap.error}'),
+                          );
+                        }
+                        if (prodSnap.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final submissions = (prodSnap.data?.docs ?? []).map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          return AdminProductSubmissionData(
+                            id: doc.id,
+                            imagePath: data['imageUrl'] ?? '',
+                            productName: data['name'] ?? '-',
+                            categoryType: mapCategoryType(data['category']),
+                            storeName: data['storeName'] ?? '-',
+                            date: (data['createdAt'] != null && data['createdAt'] is Timestamp)
+                                ? _formatDate((data['createdAt'] as Timestamp).toDate())
