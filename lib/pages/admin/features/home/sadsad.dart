@@ -501,3 +501,101 @@ class _HomePageAdminState extends State<HomePageAdmin> {
                             storeName: data['storeName'] ?? '-',
                             date: (data['createdAt'] != null && data['createdAt'] is Timestamp)
                                 ? _formatDate((data['createdAt'] as Timestamp).toDate())
+                                : '-',
+                          );
+                        }).toList();
+                        return AdminProductSubmissionSection(
+                          submissions: submissions,
+                          onSeeAll: () {
+                            setState(() {
+                              _currentIndex = 3;
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ====== IKLAN SECTION: REALTIME (Menunggu) ======
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('adsApplication')
+                          .where('status', isEqualTo: 'Menunggu')
+                          .orderBy('createdAt', descending: true)
+                          .limit(2)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Terjadi kesalahan: ${snapshot.error}'),
+                          );
+                        }
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final docs = snapshot.data?.docs ?? [];
+                        final adSubmissions = docs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          final judul = data['judul'] ?? '-';
+                          final durasiMulai = (data['durasiMulai'] is Timestamp)
+                              ? (data['durasiMulai'] as Timestamp).toDate()
+                              : DateTime.now();
+                          final durasiSelesai = (data['durasiSelesai'] is Timestamp)
+                              ? (data['durasiSelesai'] as Timestamp).toDate()
+                              : DateTime.now();
+                          final period = _formatPeriod(durasiMulai, durasiSelesai);
+                          final createdAt = (data['createdAt'] is Timestamp)
+                              ? (data['createdAt'] as Timestamp).toDate()
+                              : DateTime.now();
+                          final tglAjukan = DateFormat('dd/MM/yyyy, HH:mm').format(createdAt);
+
+                          // Map ke AdApplication
+                          final ad = AdApplication.fromFirestore(doc);
+
+                          return AdminAdSubmissionData(
+                            title: 'Iklan : $judul',
+                            detailPeriod: period,
+                            date: tglAjukan,
+                            docId: doc.id,
+                            ad: ad, // penting
+                          );
+                        }).toList();
+
+                        return AdminAdSubmissionSection(
+                          submissions: adSubmissions,
+                          onSeeAll: () {
+                            setState(() {
+                              _currentIndex = 4;
+                            });
+                          },
+                          onDetail: (submission) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AdminAdApprovalDetailPage(ad: submission.ad),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
