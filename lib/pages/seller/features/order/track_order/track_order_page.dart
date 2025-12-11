@@ -123,6 +123,7 @@ class _TrackOrderPageSellerState extends State<TrackOrderPageSeller> {
         'deliveryProof.confirmed': true,
         'gracePeriodStartAt': Timestamp.fromDate(gracePeriodStart),
         'autoCompleteAt': Timestamp.fromDate(autoCompleteTime),
+        'reminderSentAt': null, // Untuk trigger reminder di scheduler
         'updatedAt': FieldValue.serverTimestamp(),
       });
 

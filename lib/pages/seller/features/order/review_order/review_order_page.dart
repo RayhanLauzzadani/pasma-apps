@@ -47,17 +47,17 @@ class _ReviewOrderPageState extends State<ReviewOrderPage> {
     };
 
     // Jika seller klik "Kirim Pesanan", set deadline:
-    // TESTING MODE: 2 menit grace period start, 5 menit auto-complete
     // PRODUCTION: 48 jam (2 hari) grace period start, 60 jam (2.5 hari) auto-complete
     if (newStatus.toUpperCase() == 'SHIPPED') {
       updates['shippedAt'] = FieldValue.serverTimestamp();
       final now = DateTime.now();
       updates['gracePeriodStartAt'] = Timestamp.fromDate(
-        now.add(const Duration(minutes: 2)), // TESTING: 2 menit | PRODUCTION: 48 hours
+        now.add(const Duration(hours: 48)), // PRODUCTION: 48 jam
       );
       updates['autoCompleteAt'] = Timestamp.fromDate(
-        now.add(const Duration(minutes: 5)), // TESTING: 5 menit | PRODUCTION: 60 hours
+        now.add(const Duration(hours: 60)), // PRODUCTION: 60 jam
       );
+      updates['reminderSentAt'] = null; // Untuk trigger reminder di scheduler
     }
 
     await FirebaseFirestore.instance
@@ -256,11 +256,12 @@ class _ReviewOrderPageState extends State<ReviewOrderPage> {
         'status': 'SHIPPED',
         'shippedAt': FieldValue.serverTimestamp(),
         'gracePeriodStartAt': Timestamp.fromDate(
-          DateTime.now().add(const Duration(minutes: 2)), // TESTING: 2 menit
+          DateTime.now().add(const Duration(hours: 48)), // PRODUCTION: 48 jam
         ),
         'autoCompleteAt': Timestamp.fromDate(
-          DateTime.now().add(const Duration(minutes: 5)), // TESTING: 5 menit
+          DateTime.now().add(const Duration(hours: 60)), // PRODUCTION: 60 jam
         ),
+        'reminderSentAt': null, // Untuk trigger reminder di scheduler
         'updatedAt': FieldValue.serverTimestamp(),
       };
 

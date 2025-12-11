@@ -138,6 +138,32 @@ class NotificationService {
     );
   }
 
+  /// Notifikasi ke Buyer: Seller sudah konfirmasi pengiriman dengan bukti foto
+  /// (untuk metode antar sendiri / COD)
+  Future<void> notifyBuyerDeliveryConfirmed({
+    required String buyerId,   // recipient
+    required String sellerId,  // sender
+    required String orderId,
+    String? invoiceId,
+  }) async {
+    final body = (invoiceId != null && invoiceId.trim().isNotEmpty)
+        ? 'Penjual telah mengkonfirmasi pengiriman pesanan (Invoice: $invoiceId). Silakan cek dan konfirmasi penerimaan.'
+        : 'Penjual telah mengkonfirmasi pengiriman pesanan Anda. Silakan cek dan konfirmasi penerimaan.';
+
+    await _addUserNotification(
+      recipientId: buyerId,
+      payload: {
+        'recipientId': buyerId,
+        'senderId': sellerId,
+        'orderId': orderId,
+        'type': 'delivery_confirmed',
+        'title': '📦 Pesanan Sudah Diantar',
+        'body': body,
+        'invoiceId': invoiceId,
+      },
+    );
+  }
+
   // ------------- CHAT (top-level) -------------
 
   Future<void> sendOrUpdateChatNotification({

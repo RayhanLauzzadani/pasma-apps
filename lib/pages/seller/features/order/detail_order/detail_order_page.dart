@@ -8,6 +8,10 @@ import 'dart:io';
 // ➜ pastikan import ini ada
 import 'package:pasma_apps/pages/seller/features/transaction/transaction_detail_page.dart';
 
+// === NOTIF SERVICE
+import 'package:pasma_apps/data/services/notification_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 enum OrderStatus { selesai, dibatalkan, dikirim, menunggu }
 
 class DetailOrderPage extends StatefulWidget {
@@ -89,6 +93,31 @@ class _DetailOrderPageState extends State<DetailOrderPage> {
         'deliveryProof.confirmed': true,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      // === NOTIFIKASI KE BUYER: Barang sudah diantar ===
+      try {
+        final orderDoc = await FirebaseFirestore.instance
+            .collection('orders')
+            .doc(widget.orderId)
+            .get();
+        final orderData = orderDoc.data();
+        if (orderData != null) {
+          final buyerId = (orderData['buyerId'] ?? '') as String;
+          final sellerId = FirebaseAuth.instance.currentUser?.uid ?? '';
+          final invoiceId = (orderData['invoiceId'] ?? widget.orderId) as String;
+
+          if (buyerId.isNotEmpty && sellerId.isNotEmpty) {
+            await NotificationService.instance.notifyBuyerDeliveryConfirmed(
+              buyerId: buyerId,
+              sellerId: sellerId,
+              orderId: widget.orderId,
+              invoiceId: invoiceId,
+            );
+          }
+        }
+      } catch (_) {
+        // Ignore notification errors, UX continues
+      }
 
       if (!mounted) return;
 

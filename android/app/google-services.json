@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "32225794830-h8sdt4ismfnl1ugfmt768od6nabkgctk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.pasma_apps",
+            "certificate_hash": "9b0284b81242f9c920c25e0532d9264df3819fcc"
+          }
+        },
+        {
           "client_id": "32225794830-7mv3s70nj6kngbj1s0dd52q60rhc8q0h.apps.googleusercontent.com",
           "client_type": 3
         }

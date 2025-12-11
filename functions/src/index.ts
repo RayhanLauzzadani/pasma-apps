@@ -31,10 +31,10 @@ export {
 export { quoteDelivery } from "./shipping";
 
 // === Notifikasi (FCM) - Firestore triggers ===
-// export {
-//   onUserNotificationCreated,
-//   onChatNotificationCreated,
-// } from "./notifications";
+export {
+  onUserNotificationCreated,
+  onChatNotificationCreated,
+} from "./notifications";
 
 // === Token dedup / hardening ===
 // export {

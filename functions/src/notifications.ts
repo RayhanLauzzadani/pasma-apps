@@ -1,10 +1,8 @@
 // functions/src/notifications.ts
-import * as functions from "firebase-functions";
+import * as functionsV1 from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
+// Tidak perlu initializeApp di sini - sudah dilakukan di index.ts
 
 type NotifData = {
   title?: string;
@@ -223,7 +221,7 @@ async function normalizeChatNotification(
  * users/{uid}/notifications/{notifId}
  * -> kirim push ke semua token user tsb
  */
-export const onUserNotificationCreated = functions.firestore
+export const onUserNotificationCreated = functionsV1.firestore
   .document("users/{uid}/notifications/{notifId}")
   .onCreate(async (snap, ctx) => {
     const uid = ctx.params.uid as string;
@@ -243,7 +241,7 @@ export const onUserNotificationCreated = functions.firestore
  * -> pastikan shape (receiverSide, buyerId, shopOwnerId, timestamp, dst)
  * -> kirim push ke receiverId
  */
-export const onChatNotificationCreated = functions.firestore
+export const onChatNotificationCreated = functionsV1.firestore
   .document("chatNotifications/{docId}")
   .onCreate(async (snap) => {
     const raw = snap.data() as ChatNotifData;
@@ -282,11 +280,11 @@ export const onChatNotificationCreated = functions.firestore
  * yang belum punya receiverSide/buyerId/shopOwnerId/timestamp.
  * Jalankan manual sekali/kalau perlu.
  */
-export const backfillChatNotifications = functions.https.onCall(async (_data, context) => {
+export const backfillChatNotifications = functionsV1.https.onCall(async (_data, context) => {
   // (opsional) batasi hanya admin
   const auth = context.auth;
   if (!auth) {
-    throw new functions.https.HttpsError("unauthenticated", "Login required");
+    throw new functionsV1.https.HttpsError("unauthenticated", "Login required");
   }
   // Jika pakai custom claims admin, bisa cek di sini.
   // const token = await admin.auth().getUser(auth.uid);
